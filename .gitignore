@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+env/
+.venv/
+
+# Environment variables
+.env
+
+# Large ML model files
+*.pth
+*.pt
+*.ckpt
+
+# Kaggle
+checkpoint.pth
+
+# Node modules
+node_modules/
+
+# Build files
+dist/
+build/
+
+# IDE
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
