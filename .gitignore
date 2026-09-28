@@ -23,6 +23,14 @@ node_modules/
 dist/
 build/
 
+# MediaPipe runtime vendored by `npm run vendor` (postinstall).
+# ~46MB of build-time input, reproducible from node_modules and the model
+# URL, so it does not belong in history.
+frontend/public/mediapipe/
+
+# Regenerable test fixtures (fake camera clips for the browser test)
+frontend/.cache/
+
 # IDE
 .vscode/
 

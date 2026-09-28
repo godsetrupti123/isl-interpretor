@@ -28,7 +28,7 @@ const LivePrediction = ({ prediction }) => {
     );
   }
 
-  const { label, confidence, top_predictions, status } = prediction;
+  const { label, confidence, top_predictions, status, votes, needed, hands } = prediction;
   const isUncertain = status === 'uncertain';
   const displayLabel = isUncertain ? '?' : label;
   
@@ -45,6 +45,12 @@ const LivePrediction = ({ prediction }) => {
     barColor = 'var(--warning)';
   }
 
+  // The backend commits a character only once `needed` of its last `needed`
+  // frames agree. Surfacing that gives immediate feedback while a sign is
+  // being held, instead of the UI going quiet until the letter appears.
+  const hasCharge = Number.isInteger(votes) && Number.isInteger(needed) && needed > 0;
+  const chargePct = hasCharge ? Math.min(100, (votes / needed) * 100) : 0;
+
   return (
     <div className="card" id="card-prediction">
       <h3 className="card-title">Prediction</h3>
@@ -55,7 +61,28 @@ const LivePrediction = ({ prediction }) => {
           <div className="predicted-letter" style={{ color: isUncertain ? 'var(--text-muted)' : 'inherit' }}>
             {displayLabel}
           </div>
-          
+
+          {typeof hands === 'number' && (
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', margin: '4px 0 0', textAlign: 'center' }}>
+              {hands === 0 ? 'No hand detected' : `${hands} hand${hands > 1 ? 's' : ''} detected`}
+            </p>
+          )}
+
+          {hasCharge && !isUncertain && (
+            <div className="confidence-container" style={{ marginTop: '12px' }}>
+              <div className="confidence-header">
+                <span className="confidence-title">Hold steady</span>
+                <span className="confidence-value" style={{ color: 'var(--text-muted)' }}>{votes}/{needed}</span>
+              </div>
+              <div className="progress-bar-bg">
+                <div
+                  className="progress-bar-fill"
+                  style={{ width: `${chargePct}%`, backgroundColor: 'var(--text-muted)', transition: 'width 0.1s linear' }}
+                ></div>
+              </div>
+            </div>
+          )}
+
           <div className="confidence-container">
             <div className="confidence-header">
               <span className="confidence-title">Confidence</span>

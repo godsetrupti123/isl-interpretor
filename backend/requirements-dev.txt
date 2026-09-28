@@ -1,0 +1,16 @@
+# Test dependencies, on top of the runtime set.
+#
+# pytest-asyncio is not optional. pytest.ini sets asyncio_mode = auto and
+# test_server.py marks its async tests, and the consequence of omitting it is
+# easy to miss: the suite does not fail loudly, it fails partially. 31 tests
+# still pass while only the 3 async WebSocket tests fail, alongside warnings
+# about the unknown asyncio_mode option and asyncio mark. A green-looking run
+# would hide the fact that the streaming path was never exercised.
+#
+# Install with:
+#   pip install -r requirements-dev.txt
+
+-r requirements.txt
+
+pytest==9.1.1
+pytest-asyncio==1.4.0

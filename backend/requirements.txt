@@ -1,6 +1,13 @@
-fastapi
-uvicorn[standard]
-torch
-torchvision
-pillow
-websockets
+# Runtime dependencies for the ISL sign recognition backend.
+#
+# Pinned to the versions the test suite is verified against. Only direct
+# dependencies are listed; transitive ones are left to the resolver so security
+# updates still land. The trained model itself is not listed here: it is a
+# binary artifact regenerated with
+#   isl-recognition/scripts/export_model.py --out backend/model
+# and is covered by the *.npz / *.json export, not by pip.
+
+fastapi==0.141.1
+uvicorn[standard]==0.54.0
+numpy==2.5.3
+websockets==17.1
