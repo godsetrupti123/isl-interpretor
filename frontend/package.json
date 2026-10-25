@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
+    "piper-wasm": "^0.1.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

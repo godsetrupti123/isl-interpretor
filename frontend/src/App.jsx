@@ -7,6 +7,16 @@ import LivePrediction from './components/LivePrediction';
 import WordBuilder from './components/WordBuilder';
 import { PredictionSocket } from './services/predictionSocket';
 import { fetchHealth } from './services/api';
+import { generateLocalSpeech } from './services/localVoice';
+
+const LOCAL_VOICE_ASSETS = {
+  phonemizeJs: '/tts/piper_phonemize.js',
+  phonemizeWasm: '/tts/piper_phonemize.wasm',
+  phonemizeData: '/tts/piper_phonemize.data',
+  worker: '/tts/worker/piper_worker.js',
+  model: '/tts/en_US-libritts_r-medium.onnx',
+  modelConfig: '/tts/en_US-libritts_r-medium.onnx.json',
+};
 
 function App() {
   const [backendStatus, setBackendStatus] = useState({
@@ -16,7 +26,130 @@ function App() {
   const [prediction, setPrediction] = useState(null);
   const [recognizedText, setRecognizedText] = useState('');
   const [notice, setNotice] = useState(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('isl-voice-narrator');
+      return saved === null ? true : saved === 'on';
+    } catch {
+      return true;
+    }
+  });
+  const [wordVoiceEnabled, setWordVoiceEnabled] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem('isl-word-voice-narrator');
+      return saved === null ? true : saved === 'on';
+    } catch {
+      return true;
+    }
+  });
   const socketRef = useRef(null);
+  const voiceEnabledRef = useRef(voiceEnabled);
+  const wordVoiceEnabledRef = useRef(wordVoiceEnabled);
+  const localSpeechQueueRef = useRef(Promise.resolve());
+  const audioContextRef = useRef(null);
+
+  const speakText = useCallback((text, enabledRef) => {
+    if (!enabledRef.current || !text) return;
+
+    // Resume the audio context during the user's toggle/test gesture. This
+    // keeps later model-generated audio allowed by autoplay policies.
+    if (!audioContextRef.current && typeof window.AudioContext !== 'undefined') {
+      audioContextRef.current = new window.AudioContext();
+    }
+    audioContextRef.current?.resume();
+
+    // Queue confirmed letters so fast detections are not cancelled before the
+    // browser has a chance to start speaking them.
+    const spokenText = String(text).length === 1 ? String(text).toUpperCase() : String(text);
+    const browserVoices = 'speechSynthesis' in window ? window.speechSynthesis.getVoices() : [];
+
+    if (browserVoices.length > 0 && typeof SpeechSynthesisUtterance !== 'undefined') {
+      const utterance = new SpeechSynthesisUtterance(spokenText);
+      utterance.rate = 0.85;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      utterance.voice = browserVoices.find((voice) => voice.lang.startsWith('en')) ?? browserVoices[0];
+      utterance.onerror = (event) => console.warn('Voice narrator error:', event.error);
+      window.speechSynthesis.resume();
+      window.speechSynthesis.speak(utterance);
+      return;
+    }
+
+    // The downloaded local Piper voice is used when the browser has no native
+    // voices, which is common on Linux and in embedded browsers.
+    localSpeechQueueRef.current = localSpeechQueueRef.current
+      .then(async () => {
+        if (!enabledRef.current) return;
+        const audioData = await generateLocalSpeech({
+          phonemizeJsUrl: LOCAL_VOICE_ASSETS.phonemizeJs,
+          phonemizeWasmUrl: LOCAL_VOICE_ASSETS.phonemizeWasm,
+          phonemizeDataUrl: LOCAL_VOICE_ASSETS.phonemizeData,
+          workerUrl: LOCAL_VOICE_ASSETS.worker,
+          modelUrl: LOCAL_VOICE_ASSETS.model,
+          modelConfigUrl: LOCAL_VOICE_ASSETS.modelConfig,
+          input: spokenText,
+          onnxruntimeUrl: '/tts/worker/dist/',
+        });
+        const audioContext = audioContextRef.current;
+        if (audioContext) {
+          const audioBuffer = await audioContext.decodeAudioData(
+            await (await fetch(audioData.file)).arrayBuffer(),
+          );
+          await new Promise((resolve) => {
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.onended = resolve;
+            source.start();
+          });
+        } else {
+          const audio = new Audio(audioData.file);
+          await new Promise((resolve, reject) => {
+            audio.onended = resolve;
+            audio.onerror = reject;
+            audio.play().catch(reject);
+          });
+        }
+        URL.revokeObjectURL(audioData.file);
+      })
+      .catch((error) => console.error('Local voice narrator error:', error));
+  }, []);
+
+  const announceLetter = useCallback((letter) => {
+    speakText(letter, voiceEnabledRef);
+  }, [speakText]);
+
+  const announceWord = useCallback((word) => {
+    speakText(word, wordVoiceEnabledRef);
+  }, [speakText]);
+
+  const handleVoiceToggle = useCallback((enabled) => {
+    voiceEnabledRef.current = enabled;
+    setVoiceEnabled(enabled);
+    try {
+      window.localStorage.setItem('isl-voice-narrator', enabled ? 'on' : 'off');
+    } catch {
+      // Preferences are optional; narration still works for this session.
+    }
+    if (!enabled && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    } else if (enabled) {
+      // This user gesture unlocks speech in browsers that block automatic
+      // speech until the user explicitly interacts with the page.
+      announceLetter('Voice narrator enabled');
+    }
+  }, [announceLetter]);
+
+  const handleWordVoiceToggle = useCallback((enabled) => {
+    wordVoiceEnabledRef.current = enabled;
+    setWordVoiceEnabled(enabled);
+    try {
+      window.localStorage.setItem('isl-word-voice-narrator', enabled ? 'on' : 'off');
+    } catch {
+      // Preferences are optional; narration still works for this session.
+    }
+    if (enabled) announceWord('Word voice narrator enabled');
+  }, [announceWord]);
 
   // Live vector from the camera goes straight to the socket. No buffering
   // here: a slow backend should drop frames, not accumulate a backlog.
@@ -39,6 +172,7 @@ function App() {
         // buffer. The frontend must not add its own gating or cooldown.
         if (data.committed) {
           setRecognizedText((previous) => previous + data.committed);
+          announceLetter(data.committed);
         }
       },
     );
@@ -85,7 +219,8 @@ function App() {
     }
     setPrediction({ ...data, status: 'ok' });
     setRecognizedText((previous) => previous + data.label);
-  }, []);
+    announceLetter(data.label);
+  }, [announceLetter]);
 
   const handleUploadError = useCallback((message) => {
     setNotice(message ?? null);
@@ -127,10 +262,18 @@ function App() {
           </div>
 
           <div className="workspace-column-right">
-            <LivePrediction prediction={prediction} />
+            <LivePrediction
+              prediction={prediction}
+              voiceEnabled={voiceEnabled}
+              onVoiceToggle={handleVoiceToggle}
+              onVoiceTest={() => announceLetter('Voice narrator test')}
+            />
             <WordBuilder
               text={recognizedText}
               setText={setRecognizedText}
+              voiceEnabled={wordVoiceEnabled}
+              onVoiceToggle={handleWordVoiceToggle}
+              onSpeakText={announceWord}
             />
           </div>
         </section>
