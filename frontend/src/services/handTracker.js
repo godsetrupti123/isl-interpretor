@@ -129,6 +129,15 @@ export async function detectVideoFrame(video, timestampMs, renderInto) {
  */
 export async function detectStillImage(image, renderInto) {
   const landmarker = await getHandLandmarker('IMAGE');
-  if (renderInto) drawSource(renderInto, image);
-  return toHands(landmarker.detect(image));
+  // The vector builder and training parity both expect mirrored input. The
+  // old upload path mirrored only the preview canvas, then detected the
+  // original image, so the user saw different pixels from those being
+  // classified (and handedness no longer matched the training convention).
+  const source = renderInto ?? document.createElement('canvas');
+  if (!renderInto) {
+    source.width = image.naturalWidth || image.width;
+    source.height = image.naturalHeight || image.height;
+  }
+  drawSource(source, image);
+  return toHands(landmarker.detect(source));
 }

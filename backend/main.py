@@ -195,8 +195,8 @@ async def predict_websocket(websocket: WebSocket):
     finally:
         try:
             await websocket.close()
-        except RuntimeError:
-            pass  # already closed
+        except (RuntimeError, WebSocketDisconnect):
+            pass  # already closed or the peer disconnected before close was sent
 
 
 @app.post("/predict")

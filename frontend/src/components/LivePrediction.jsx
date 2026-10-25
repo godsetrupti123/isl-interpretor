@@ -1,10 +1,54 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
-const LivePrediction = ({ prediction }) => {
+const VoiceNarratorToggle = ({ enabled, onToggle, onTest }) => {
+  const supported = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const [hasVoice, setHasVoice] = useState(false);
+
+  useEffect(() => {
+    if (!supported) return undefined;
+
+    const refreshVoices = () => setHasVoice(window.speechSynthesis.getVoices().length > 0);
+    refreshVoices();
+    window.speechSynthesis.addEventListener('voiceschanged', refreshVoices);
+    return () => window.speechSynthesis.removeEventListener('voiceschanged', refreshVoices);
+  }, [supported]);
+
+  // The app bundles a local Piper voice, so browser-installed voices are
+  // optional. The switch remains usable even when getVoices() is empty.
+  const available = supported;
+
+  return (
+    <div className="voice-narrator-controls">
+      <label className="voice-narrator" title={hasVoice ? 'Read confirmed letters aloud' : 'Using the downloaded local voice'}>
+        <span className="voice-narrator-label">Voice narrator</span>
+        <input
+          type="checkbox"
+          role="switch"
+          checked={enabled}
+          disabled={!available}
+          onChange={(event) => onToggle(event.target.checked)}
+          aria-label="Voice narrator"
+        />
+        <span className="voice-switch" aria-hidden="true"><span /></span>
+      </label>
+      {!hasVoice && <span className="voice-narrator-status">Downloaded voice ready</span>}
+      {available && enabled && (
+        <button type="button" className="voice-test-button" onClick={onTest}>
+          Test
+        </button>
+      )}
+    </div>
+  );
+};
+
+const LivePrediction = ({ prediction, voiceEnabled, onVoiceToggle, onVoiceTest }) => {
   if (!prediction) {
     return (
       <div className="card" id="card-prediction">
-        <h3 className="card-title">Prediction</h3>
+        <div className="prediction-card-header">
+          <h3 className="card-title">Prediction</h3>
+          <VoiceNarratorToggle enabled={voiceEnabled} onToggle={onVoiceToggle} onTest={onVoiceTest} />
+        </div>
         <div className="prediction-content">
           <div className="empty-state">
             <p>Your prediction will appear here</p>
@@ -17,7 +61,10 @@ const LivePrediction = ({ prediction }) => {
   if (prediction.loading) {
     return (
       <div className="card" id="card-prediction">
-        <h3 className="card-title">Prediction</h3>
+        <div className="prediction-card-header">
+          <h3 className="card-title">Prediction</h3>
+          <VoiceNarratorToggle enabled={voiceEnabled} onToggle={onVoiceToggle} onTest={onVoiceTest} />
+        </div>
         <div className="prediction-content">
           <div className="empty-state" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <svg className="spinner" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: 'spin 1s linear infinite', marginBottom: '10px' }}><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
@@ -28,9 +75,12 @@ const LivePrediction = ({ prediction }) => {
     );
   }
 
-  const { label, confidence, top_predictions, status, votes, needed, hands } = prediction;
+  const { label, raw_label, confidence, top_predictions, status, votes, needed, hands } = prediction;
   const isUncertain = status === 'uncertain';
-  const displayLabel = isUncertain ? '?' : label;
+  // The backend withholds low-confidence labels from the charge buffer, but
+  // still sends its best candidate. Show it as an unconfirmed guess instead
+  // of making a detected hand look like no prediction was produced.
+  const displayLabel = isUncertain ? (raw_label || '?') : label;
   
   const percentage = Math.round(confidence * 100) || 0;
   
@@ -53,13 +103,18 @@ const LivePrediction = ({ prediction }) => {
 
   return (
     <div className="card" id="card-prediction">
-      <h3 className="card-title">Prediction</h3>
+      <div className="prediction-card-header">
+        <h3 className="card-title">Prediction</h3>
+      </div>
       <div className="prediction-content">
         <div className="prediction-result">
           <span className="prediction-label">CURRENT SIGN</span>
           
-          <div className="predicted-letter" style={{ color: isUncertain ? 'var(--text-muted)' : 'inherit' }}>
-            {displayLabel}
+          <div className="predicted-letter-row">
+            <div className="predicted-letter" style={{ color: isUncertain ? 'var(--text-muted)' : 'inherit' }}>
+              {displayLabel}
+            </div>
+            <VoiceNarratorToggle enabled={voiceEnabled} onToggle={onVoiceToggle} onTest={onVoiceTest} />
           </div>
 
           {typeof hands === 'number' && (
@@ -98,7 +153,9 @@ const LivePrediction = ({ prediction }) => {
 
           {isUncertain && (
             <p style={{ color: 'var(--warning)', fontSize: '0.85rem', marginTop: '10px', textAlign: 'center' }}>
-               Hold sign steady. Confidence too low.
+              {hands === 0
+                ? 'No hand detected. Move your hand fully into view.'
+                : 'Unconfirmed best guess. Hold the sign steady for confirmation.'}
             </p>
           )}
 
